@@ -1,0 +1,251 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Customer {
+  id             String   @id @default(cuid())
+  vtexCustomerId String?  @unique
+  email          String?  @unique
+  firstName      String?
+  lastName       String?
+  phone          String?
+  document       String?
+  documentType   String?
+  isCorporate    Boolean  @default(false)
+  corporateName  String?
+  tradeName      String?
+  stateInscr     String?
+  birthDate      DateTime?
+  gender         String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  orders         Order[]
+}
+
+model OrderQueue {
+  id               String   @id @default(cuid())
+  vtexOrderId      String   @unique
+  vtexSequence     String?
+  status           String?
+  creationDate     DateTime?
+  lastChange       DateTime?
+  processingStatus String   @default("pending")
+  attempts         Int      @default(0)
+  lastError        String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model Address {
+  id           String   @id @default(cuid())
+  type         String?
+  street       String?
+  number       String?
+  complement   String?
+  neighborhood String?
+  city         String?
+  state        String?
+  postalCode   String?
+  country      String?
+  geoLat       Float?
+  geoLng       Float?
+  createdAt    DateTime @default(now())
+
+  billingOrders   Order[]         @relation("BillingAddress")
+  shippingOrders  Order[]         @relation("ShippingAddress")
+  orderShippings  OrderShipping[]
+}
+
+model Product {
+  id            String   @id @default(cuid())
+  vtexProductId String   @unique
+  name          String?
+  brand         String?
+  categoryId    String?
+  departmentId  String?
+  isActive      Boolean  @default(true)
+  isVisible     Boolean  @default(true)
+  releaseDate   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  skus          Sku[]
+  items         OrderItem[]
+}
+
+model Sku {
+  id           String   @id @default(cuid())
+  vtexSkuId    String   @unique
+  productId    String?
+  name         String?
+  refId        String?
+  ean          String?
+  manufacturerCode String?
+  height       Float?
+  width        Float?
+  length       Float?
+  weight       Float?
+  imageUrl     String?
+  isActive     Boolean  @default(true)
+  isAvailable  Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  product      Product? @relation(fields: [productId], references: [id])
+  items        OrderItem[]
+}
+
+model Order {
+  id               String   @id @default(cuid())
+  vtexOrderId      String   @unique
+  vtexSequence     String?
+  marketplaceOrderId String?
+  status           String?
+  statusDescription String?
+  isCompleted      Boolean @default(false)
+  creationDate     DateTime?
+  lastChange       DateTime?
+  totalValue       Int?
+  itemsValue       Int?
+  shippingValue    Int?
+  discountsValue   Int?
+  taxValue         Int?
+  roundingValue    Int?
+  salesChannel     String?
+  seller           String?
+  affiliateId      String?
+  affiliateName    String?
+  origin           String?
+  source           String?
+  device           String?
+  userAgent        String?
+  utmSource        String?
+  utmMedium        String?
+  utmCampaign      String?
+  utmTerm          String?
+  utmContent       String?
+  utmiCp           String?
+  utmiPart         String?
+  currency         String?
+  locale           String?
+  raw              Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  customerId       String?
+  billingAddressId String?
+  shippingAddressId String?
+
+  customer         Customer? @relation(fields: [customerId], references: [id])
+  billingAddress   Address?  @relation("BillingAddress", fields: [billingAddressId], references: [id])
+  shippingAddress  Address?  @relation("ShippingAddress", fields: [shippingAddressId], references: [id])
+
+  items            OrderItem[]
+  payments         OrderPayment[]
+  shipments        OrderShipping[]
+  promotions       OrderPromotion[]
+}
+
+model OrderItem {
+  id            String   @id @default(cuid())
+  orderId       String
+  uniqueItemId  String
+  productId     String?
+  skuId         String?
+  seller        String?
+  quantity      Int
+  price         Int?
+  listPrice     Int?
+  sellingPrice  Int?
+  manualPrice   Int?
+  totalPrice    Int?
+  totalDiscount Int?
+  tax           Int?
+  measurementUnit String?
+  unitMultiplier Float?
+  isGift        Boolean @default(false)
+  isCustomized  Boolean @default(false)
+  refId         String?
+  skuRefId      String?
+
+  order         Order   @relation(fields: [orderId], references: [id])
+  product       Product? @relation(fields: [productId], references: [id])
+  sku           Sku?     @relation(fields: [skuId], references: [id])
+
+  @@unique([orderId, uniqueItemId])
+}
+
+model OrderPayment {
+  id            String   @id @default(cuid())
+  orderId       String
+  transactionId String?
+  paymentId     String?
+  paymentSystem String?
+  paymentGroup  String?
+  paymentName   String?
+  installments  Int?
+  value         Int?
+  status        String?
+  authorizationId String?
+  tid           String?
+  nsu           String?
+  gateway       String?
+  cardBin       String?
+  cardLast4     String?
+  cardHolder    String?
+
+  order         Order @relation(fields: [orderId], references: [id])
+}
+
+model OrderShipping {
+  id               String   @id @default(cuid())
+  orderId          String
+  addressId        String?
+  deliveryChannel  String?
+  shippingSla      String?
+  carrier          String?
+  shippingEstimate String?
+  shippingEstimateDate DateTime?
+  shippingValue    Int?
+  deliveryWindow   Json?
+  pickupPointId    String?
+  pickupFriendlyName String?
+  isDelivered      Boolean @default(false)
+  deliveredDate    DateTime?
+
+  order            Order   @relation(fields: [orderId], references: [id])
+  address          Address? @relation(fields: [addressId], references: [id])
+}
+
+model OrderPromotion {
+  id           String   @id @default(cuid())
+  orderId      String
+  promotionId  String?
+  name         String?
+  description  String?
+  value        Int?
+  isCumulative Boolean?
+  type         String?
+  raw          Json?
+
+  order        Order @relation(fields: [orderId], references: [id])
+}
+
+model IngestionJob {
+  id          String   @id @default(cuid())
+  jobType     String
+  status      String
+  cursor      String?
+  retryCount  Int      @default(0)
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  lastError   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
