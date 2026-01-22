@@ -240,7 +240,7 @@ app.get<{ Querystring: MetricsQuery }>("/metrics/customers", async (request) => 
   const { filter: statusFilter } = buildStatusFilter(request.query, "o");
   const salesChannelFilter = buildSalesChannelFilter("o");
 
-  const [cohorts, topCustomers] = await Promise.all([
+  const [cohorts, topCustomers, customerTypeStats] = await Promise.all([
     prisma.$queryRaw<
       Array<{ new_customers: bigint; returning_customers: bigint }>
     >`
@@ -285,9 +285,49 @@ app.get<{ Querystring: MetricsQuery }>("/metrics/customers", async (request) => 
     ORDER BY revenue DESC
        LIMIT ${limit}
     `,
+    prisma.$queryRaw<
+      Array<{
+        isCorporate: boolean;
+        totalCustomers: bigint;
+        totalOrders: bigint;
+        totalRevenue: bigint;
+        avgOrderValue: bigint;
+      }>
+    >`
+      SELECT c."isCorporate" AS "isCorporate",
+             COUNT(DISTINCT o."customerId") AS "totalCustomers",
+             COUNT(*) AS "totalOrders",
+             COALESCE(SUM(o."totalValue"), 0) AS "totalRevenue",
+             CASE WHEN COUNT(*) > 0 
+               THEN COALESCE(SUM(o."totalValue"), 0) / COUNT(*)
+               ELSE 0 
+             END AS "avgOrderValue"
+       FROM "Order" o
+  LEFT JOIN "Customer" c ON c."id" = o."customerId"
+      WHERE (o."creationDate" AT TIME ZONE 'UTC' AT TIME ZONE ${reportTimezone})::date
+        BETWEEN ${startDate}::date AND ${endDate}::date
+        AND o."customerId" IS NOT NULL
+      ${statusFilter}
+      ${salesChannelFilter}
+   GROUP BY c."isCorporate"
+    `,
   ]);
 
   const cohortRow = cohorts[0] || { new_customers: 0n, returning_customers: 0n };
+
+  const pfStats = customerTypeStats.find((row) => row.isCorporate === false) || {
+    totalCustomers: 0n,
+    totalOrders: 0n,
+    totalRevenue: 0n,
+    avgOrderValue: 0n,
+  };
+
+  const pjStats = customerTypeStats.find((row) => row.isCorporate === true) || {
+    totalCustomers: 0n,
+    totalOrders: 0n,
+    totalRevenue: 0n,
+    avgOrderValue: 0n,
+  };
 
   return {
     start: startDate,
@@ -295,6 +335,20 @@ app.get<{ Querystring: MetricsQuery }>("/metrics/customers", async (request) => 
     cohorts: {
       newCustomers: Number(cohortRow.new_customers),
       returningCustomers: Number(cohortRow.returning_customers),
+    },
+    byType: {
+      pf: {
+        totalCustomers: Number(pfStats.totalCustomers),
+        totalOrders: Number(pfStats.totalOrders),
+        totalRevenue: Number(pfStats.totalRevenue),
+        avgOrderValue: Number(pfStats.avgOrderValue),
+      },
+      pj: {
+        totalCustomers: Number(pjStats.totalCustomers),
+        totalOrders: Number(pjStats.totalOrders),
+        totalRevenue: Number(pjStats.totalRevenue),
+        avgOrderValue: Number(pjStats.avgOrderValue),
+      },
     },
     topCustomers: topCustomers.map((row) => ({
       customerId: row.customerId,
