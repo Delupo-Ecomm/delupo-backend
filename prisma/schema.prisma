@@ -133,6 +133,7 @@ model Order {
   utmContent       String?
   utmiCp           String?
   utmiPart         String?
+  coupon           String?
   currency         String?
   locale           String?
   raw              Json?
@@ -233,6 +234,7 @@ model OrderPromotion {
   value        Int?
   isCumulative Boolean?
   type         String?
+  couponCode   String?
   raw          Json?
 
   order        Order @relation(fields: [orderId], references: [id])

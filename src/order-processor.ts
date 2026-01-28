@@ -48,6 +48,7 @@ export type OrderDetail = {
     utmContent?: string;
     utmiCp?: string;
     utmiPart?: string;
+    coupon?: string;
   };
   clientProfileData?: {
     userProfileId?: string;
@@ -131,6 +132,11 @@ export type OrderDetail = {
       couponCode?: string;
       isCumulative?: boolean;
       type?: string;
+    }>;
+    rateAndBenefitsIdentifiers?: Array<{
+      id?: string;
+      name?: string;
+      matchedParameters?: Record<string, string>;
     }>;
   };
   totals?: Array<{
@@ -336,6 +342,7 @@ export async function upsertOrder(detail: OrderDetail) {
       utmContent: detail.marketingData?.utmContent || null,
       utmiCp: detail.marketingData?.utmiCp || null,
       utmiPart: detail.marketingData?.utmiPart || null,
+      coupon: detail.marketingData?.coupon || null,
       currency: detail.currencyCode || null,
       raw: detail as unknown as object,
       customerId: customer?.id,
@@ -371,6 +378,7 @@ export async function upsertOrder(detail: OrderDetail) {
       utmContent: detail.marketingData?.utmContent || null,
       utmiCp: detail.marketingData?.utmiCp || null,
       utmiPart: detail.marketingData?.utmiPart || null,
+      coupon: detail.marketingData?.coupon || null,
       currency: detail.currencyCode || null,
       raw: detail as unknown as object,
       customerId: customer?.id,
@@ -459,7 +467,16 @@ export async function upsertOrder(detail: OrderDetail) {
   }
 
   await prisma.orderPromotion.deleteMany({ where: { orderId: order.id } });
+  
+  // Extrair cupom de rateAndBenefitsIdentifiers se existir
+  const couponFromIdentifiers = detail.ratesAndBenefitsData?.rateAndBenefitsIdentifiers
+    ?.map(identifier => identifier.matchedParameters?.["couponCode@Marketing"])
+    .find(code => code);
+  
   for (const benefit of detail.ratesAndBenefitsData?.benefits ?? []) {
+    // Cupom pode vir de: benefit.couponCode, rateAndBenefitsIdentifiers, ou marketingData.coupon
+    const couponCode = benefit.couponCode || couponFromIdentifiers || detail.marketingData?.coupon || null;
+    
     await prisma.orderPromotion.create({
       data: {
         orderId: order.id,
@@ -469,6 +486,7 @@ export async function upsertOrder(detail: OrderDetail) {
         value: benefit.discount ?? null,
         isCumulative: benefit.isCumulative ?? null,
         type: benefit.type || null,
+        couponCode: couponCode,
         raw: benefit as unknown as Prisma.InputJsonValue,
       },
     });

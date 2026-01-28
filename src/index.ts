@@ -639,6 +639,88 @@ app.get<{ Querystring: MetricsQuery }>("/metrics/utm", async (request) => {
   };
 });
 
+app.get<{ Querystring: MetricsQuery }>("/metrics/coupons", async (request) => {
+  const { startDate, endDate } = buildDateRange(request.query);
+  const limit = Math.min(Number(request.query.limit || 200), 500);
+  const includeAll = request.query.all === "true";
+  const { filter: statusFilter } = buildStatusFilter(request.query, "o");
+  const salesChannelFilter = buildSalesChannelFilter("o");
+  const rows = await prisma.$queryRaw<
+    Array<{
+      couponCode: string | null;
+      orders: bigint;
+      revenue: bigint;
+    }>
+  >`
+    SELECT COALESCE(p."couponCode", '(sem cupom)') AS "couponCode",
+           COUNT(DISTINCT o.id) AS orders,
+           COALESCE(SUM(o."totalValue"), 0) AS revenue
+      FROM "Order" o
+      LEFT JOIN "OrderPromotion" p ON o.id = p."orderId"
+     WHERE (o."creationDate" AT TIME ZONE 'UTC' AT TIME ZONE ${reportTimezone})::date
+       BETWEEN ${startDate}::date AND ${endDate}::date
+     ${statusFilter}
+     ${salesChannelFilter}
+  GROUP BY "couponCode"
+  ORDER BY revenue DESC
+     ${includeAll ? Prisma.empty : Prisma.sql`LIMIT ${limit}`}
+  `;
+
+  return {
+    start: startDate,
+    end: endDate,
+    items: rows.map((row) => ({
+      couponCode: row.couponCode,
+      orders: Number(row.orders),
+      revenue: Number(row.revenue),
+    })),
+  };
+});
+
+app.get<{ Querystring: MetricsQuery }>("/metrics/promotions", async (request) => {
+  const { startDate, endDate } = buildDateRange(request.query);
+  const limit = Math.min(Number(request.query.limit || 200), 500);
+  const includeAll = request.query.all === "true";
+  const { filter: statusFilter } = buildStatusFilter(request.query, "o");
+  const salesChannelFilter = buildSalesChannelFilter("o");
+  const rows = await prisma.$queryRaw<
+    Array<{
+      promotionName: string | null;
+      promotionType: string | null;
+      orders: bigint;
+      revenue: bigint;
+      discount: bigint;
+    }>
+  >`
+    SELECT COALESCE(p."name", '(sem promocao)') AS "promotionName",
+           p."type" AS "promotionType",
+           COUNT(DISTINCT o.id) AS orders,
+           COALESCE(SUM(o."totalValue"), 0) AS revenue,
+           COALESCE(SUM(p."value"), 0) AS discount
+      FROM "Order" o
+      LEFT JOIN "OrderPromotion" p ON o.id = p."orderId"
+     WHERE (o."creationDate" AT TIME ZONE 'UTC' AT TIME ZONE ${reportTimezone})::date
+       BETWEEN ${startDate}::date AND ${endDate}::date
+     ${statusFilter}
+     ${salesChannelFilter}
+  GROUP BY "promotionName", "promotionType"
+  ORDER BY revenue DESC
+     ${includeAll ? Prisma.empty : Prisma.sql`LIMIT ${limit}`}
+  `;
+
+  return {
+    start: startDate,
+    end: endDate,
+    items: rows.map((row) => ({
+      promotionName: row.promotionName,
+      promotionType: row.promotionType,
+      orders: Number(row.orders),
+      revenue: Number(row.revenue),
+      discount: Number(row.discount),
+    })),
+  };
+});
+
 app.get<{ Querystring: MetricsQuery }>("/metrics/shipping", async (request) => {
   const { startDate, endDate } = buildDateRange(request.query);
   const limit = Math.min(Number(request.query.limit || 20), 100);

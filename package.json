@@ -10,6 +10,7 @@
     "ingest": "tsx src/ingest.ts",
     "queue:orders": "tsx src/queue-orders.ts",
     "process:orders": "tsx src/process-order-queue.ts",
+    "update:promotions": "tsx src/update-promotions.ts",
     "export:masked-emails": "tsx src/export-masked-emails.ts",
     "sync:masterdata": "tsx src/sync-masterdata.ts",
     "db:migrate": "prisma migrate dev",
