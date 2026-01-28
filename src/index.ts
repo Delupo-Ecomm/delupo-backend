@@ -18,6 +18,8 @@ type MetricsQuery = {
   sort?: "quantity" | "revenue";
   status?: string;
   all?: string;
+  groupBy?: "day" | "week" | "month";
+  utmSource?: string;
 };
 
 const reportTimezone = process.env.REPORT_TIMEZONE || "America/Sao_Paulo";
@@ -152,13 +154,45 @@ app.get<{ Querystring: MetricsQuery }>("/metrics/orders", async (request) => {
   const { startDate, endDate } = buildDateRange(request.query);
   const { filter: statusFilter } = buildStatusFilter(request.query, "o");
   const salesChannelFilter = buildSalesChannelFilter("o");
+  const groupBy = request.query.groupBy || "day";
+  
+  let utmSourceFilter: Prisma.Sql;
+  if (!request.query.utmSource) {
+    utmSourceFilter = Prisma.empty;
+  } else if (request.query.utmSource === "Direto") {
+    // "Direto" means no UTM source (NULL or empty)
+    utmSourceFilter = Prisma.sql`AND (o."utmSource" IS NULL OR o."utmSource" = '' OR o."utmSource" = '(none)')`;
+  } else {
+    utmSourceFilter = Prisma.sql`AND o."utmSource" = ${request.query.utmSource}`;
+  }
+
+  let dateGrouping: Prisma.Sql;
+  let dateLabel: string;
+
+  if (groupBy === "week") {
+    dateGrouping = Prisma.sql`TO_CHAR(
+      DATE_TRUNC('week', (o."creationDate" AT TIME ZONE 'UTC' AT TIME ZONE ${reportTimezone})::date),
+      'YYYY-MM-DD'
+    )`;
+    dateLabel = "week";
+  } else if (groupBy === "month") {
+    dateGrouping = Prisma.sql`TO_CHAR(
+      DATE_TRUNC('month', (o."creationDate" AT TIME ZONE 'UTC' AT TIME ZONE ${reportTimezone})::date),
+      'YYYY-MM-DD'
+    )`;
+    dateLabel = "month";
+  } else {
+    dateGrouping = Prisma.sql`TO_CHAR(
+      (o."creationDate" AT TIME ZONE 'UTC' AT TIME ZONE ${reportTimezone})::date,
+      'YYYY-MM-DD'
+    )`;
+    dateLabel = "day";
+  }
+
   const rows = await prisma.$queryRaw<
-    Array<{ day: string; orders: bigint; revenue: bigint }>
+    Array<{ period: string; orders: bigint; revenue: bigint }>
   >`
-    SELECT TO_CHAR(
-             (o."creationDate" AT TIME ZONE 'UTC' AT TIME ZONE ${reportTimezone})::date,
-             'YYYY-MM-DD'
-           ) AS day,
+    SELECT ${dateGrouping} AS period,
            COUNT(*) AS orders,
            COALESCE(SUM("totalValue"), 0) AS revenue
       FROM "Order" o
@@ -166,15 +200,17 @@ app.get<{ Querystring: MetricsQuery }>("/metrics/orders", async (request) => {
        BETWEEN ${startDate}::date AND ${endDate}::date
      ${statusFilter}
      ${salesChannelFilter}
-  GROUP BY day
-  ORDER BY day ASC
+     ${utmSourceFilter}
+  GROUP BY period
+  ORDER BY period ASC
   `;
 
   return {
     start: startDate,
     end: endDate,
+    groupBy,
     series: rows.map((row) => ({
-      day: row.day,
+      [dateLabel]: row.period,
       orders: Number(row.orders),
       revenue: Number(row.revenue),
     })),
