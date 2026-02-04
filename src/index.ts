@@ -1,7 +1,9 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
+import bcrypt from "bcrypt";
 import { Prisma } from "@prisma/client";
 import { prisma } from "./db.js";
+import { authMiddleware, generateToken } from "./auth.js";
 
 const app = Fastify({ logger: true });
 
@@ -10,6 +12,50 @@ await app.register(cors, {
 });
 
 app.get("/health", async () => ({ status: "ok" }));
+
+// Rota de login (pública)
+app.post<{ Body: { username: string; password: string } }>(
+  "/auth/login",
+  async (request, reply) => {
+    const { username, password } = request.body;
+
+    if (!username || !password) {
+      return reply.status(400).send({ error: "Username e password são obrigatórios" });
+    }
+
+    try {
+      const user = await prisma.user.findUnique({
+        where: { username },
+      });
+
+      if (!user) {
+        return reply.status(401).send({ error: "Credenciais inválidas" });
+      }
+
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+
+      if (!isPasswordValid) {
+        return reply.status(401).send({ error: "Credenciais inválidas" });
+      }
+
+      const token = generateToken({
+        userId: user.id,
+        username: user.username,
+      });
+
+      return {
+        token,
+        user: {
+          id: user.id,
+          username: user.username,
+        },
+      };
+    } catch (error) {
+      app.log.error(error);
+      return reply.status(500).send({ error: "Erro ao fazer login" });
+    }
+  }
+);
 
 type MetricsQuery = {
   start?: string;
@@ -101,7 +147,9 @@ function buildMonthSeries(startDate: string, endDate: string) {
   return months;
 }
 
-app.get<{ Querystring: MetricsQuery }>("/metrics/summary", async (request) => {
+app.get<{ Querystring: MetricsQuery }>("/metrics/summary", {
+  preHandler: authMiddleware
+}, async (request) => {
   const { startDate, endDate } = buildDateRange(request.query);
   const { filter: statusFilter } = buildStatusFilter(request.query, "o");
   const salesChannelFilter = buildSalesChannelFilter("o");
@@ -150,7 +198,9 @@ app.get<{ Querystring: MetricsQuery }>("/metrics/summary", async (request) => {
   };
 });
 
-app.get<{ Querystring: MetricsQuery }>("/metrics/orders", async (request) => {
+app.get<{ Querystring: MetricsQuery }>("/metrics/orders", {
+  preHandler: authMiddleware
+}, async (request) => {
   const { startDate, endDate } = buildDateRange(request.query);
   const { filter: statusFilter } = buildStatusFilter(request.query, "o");
   const salesChannelFilter = buildSalesChannelFilter("o");
@@ -217,7 +267,9 @@ app.get<{ Querystring: MetricsQuery }>("/metrics/orders", async (request) => {
   };
 });
 
-app.get<{ Querystring: MetricsQuery }>("/metrics/products", async (request) => {
+app.get<{ Querystring: MetricsQuery }>("/metrics/products", {
+  preHandler: authMiddleware
+}, async (request) => {
   const { startDate, endDate } = buildDateRange(request.query);
   const limit = Math.min(Number(request.query.limit || 20), 100);
   const { filter: statusFilter } = buildStatusFilter(request.query, "o");
@@ -270,7 +322,9 @@ app.get<{ Querystring: MetricsQuery }>("/metrics/products", async (request) => {
   };
 });
 
-app.get<{ Querystring: MetricsQuery }>("/metrics/customers", async (request) => {
+app.get<{ Querystring: MetricsQuery }>("/metrics/customers", {
+  preHandler: authMiddleware
+}, async (request) => {
   const { startDate, endDate } = buildDateRange(request.query);
   const limit = Math.min(Number(request.query.limit || 20), 100);
   const { filter: statusFilter } = buildStatusFilter(request.query, "o");
@@ -396,7 +450,9 @@ app.get<{ Querystring: MetricsQuery }>("/metrics/customers", async (request) => 
   };
 });
 
-app.get<{ Querystring: MetricsQuery }>("/metrics/retention", async (request) => {
+app.get<{ Querystring: MetricsQuery }>("/metrics/retention", {
+  preHandler: authMiddleware
+}, async (request) => {
   const { startDate, endDate } = buildDateRange(request.query);
   const { filter: statusFilter } = buildStatusFilter(request.query, "o");
   const salesChannelFilter = buildSalesChannelFilter("o");
@@ -475,7 +531,9 @@ app.get<{ Querystring: MetricsQuery }>("/metrics/retention", async (request) => 
   };
 });
 
-app.get<{ Querystring: MetricsQuery }>("/metrics/cohort", async (request) => {
+app.get<{ Querystring: MetricsQuery }>("/metrics/cohort", {
+  preHandler: authMiddleware
+}, async (request) => {
   const { startDate, endDate } = buildDateRange(request.query);
   const { filter: statusFilter } = buildStatusFilter(request.query, "o");
   const salesChannelFilter = buildSalesChannelFilter("o");
@@ -529,7 +587,9 @@ app.get<{ Querystring: MetricsQuery }>("/metrics/cohort", async (request) => {
   };
 });
 
-app.get<{ Querystring: MetricsQuery }>("/metrics/new-vs-returning", async (request) => {
+app.get<{ Querystring: MetricsQuery }>("/metrics/new-vs-returning", {
+  preHandler: authMiddleware
+}, async (request) => {
   const { startDate, endDate } = buildDateRange(request.query);
   const { filter: statusFilter } = buildStatusFilter(request.query, "o");
   const salesChannelFilter = buildSalesChannelFilter("o");
@@ -596,7 +656,9 @@ app.get<{ Querystring: MetricsQuery }>("/metrics/new-vs-returning", async (reque
   };
 });
 
-app.get<{ Querystring: MetricsQuery }>("/metrics/utm", async (request) => {
+app.get<{ Querystring: MetricsQuery }>("/metrics/utm", {
+  preHandler: authMiddleware
+}, async (request) => {
   const { startDate, endDate } = buildDateRange(request.query);
   const limit = Math.min(Number(request.query.limit || 200), 500);
   const includeAll = request.query.all === "true";
@@ -639,7 +701,9 @@ app.get<{ Querystring: MetricsQuery }>("/metrics/utm", async (request) => {
   };
 });
 
-app.get<{ Querystring: MetricsQuery }>("/metrics/coupons", async (request) => {
+app.get<{ Querystring: MetricsQuery }>("/metrics/coupons", {
+  preHandler: authMiddleware
+}, async (request) => {
   const { startDate, endDate } = buildDateRange(request.query);
   const limit = Math.min(Number(request.query.limit || 200), 500);
   const includeAll = request.query.all === "true";
@@ -677,7 +741,9 @@ app.get<{ Querystring: MetricsQuery }>("/metrics/coupons", async (request) => {
   };
 });
 
-app.get<{ Querystring: MetricsQuery }>("/metrics/promotions", async (request) => {
+app.get<{ Querystring: MetricsQuery }>("/metrics/promotions", {
+  preHandler: authMiddleware
+}, async (request) => {
   const { startDate, endDate } = buildDateRange(request.query);
   const limit = Math.min(Number(request.query.limit || 200), 500);
   const includeAll = request.query.all === "true";
@@ -721,7 +787,9 @@ app.get<{ Querystring: MetricsQuery }>("/metrics/promotions", async (request) =>
   };
 });
 
-app.get<{ Querystring: MetricsQuery }>("/metrics/shipping", async (request) => {
+app.get<{ Querystring: MetricsQuery }>("/metrics/shipping", {
+  preHandler: authMiddleware
+}, async (request) => {
   const { startDate, endDate } = buildDateRange(request.query);
   const limit = Math.min(Number(request.query.limit || 20), 100);
   const { filter: statusFilter } = buildStatusFilter(request.query, "o");
@@ -767,7 +835,9 @@ app.get<{ Querystring: MetricsQuery }>("/metrics/shipping", async (request) => {
   };
 });
 
-app.get<{ Querystring: MetricsQuery }>("/metrics/payments", async (request) => {
+app.get<{ Querystring: MetricsQuery }>("/metrics/payments", {
+  preHandler: authMiddleware
+}, async (request) => {
   const { startDate, endDate } = buildDateRange(request.query);
   const limit = Math.min(Number(request.query.limit || 20), 100);
   const { filter: statusFilter } = buildStatusFilter(request.query, "o");
